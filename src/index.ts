@@ -25,5 +25,5 @@ server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}/`);
 });
 
-// const MONGODB_ATLAS_PASSWORD = process.env.MONGODB_ATLAS_PASSWORD
-// const MONGO_URL = `mongodb+srv://davidhomecube:${MONGODB_ATLAS_PASSWORD}@cluster0.guwvp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`
+const MONGODB_ATLAS_PASSWORD = process.env.MONGODB_ATLAS_PASSWORD
+const MONGO_URL = `mongodb+srv://davidhomecube:${MONGODB_ATLAS_PASSWORD}@cluster0.guwvp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`
