@@ -1,0 +1,444 @@
+Path: nodemon.json
+Contents:
+{
+    "watch": ["src"],
+    "ext": ".ts,.js",
+    "exec": "ts-node ./src/index.ts"
+}
+
+Path: .gitignore
+Contents:
+node_modules/
+secret.json
+.env
+
+Path: package.json
+Contents:
+{
+  "name": "rest-api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/body-parser": "^1.19.5",
+    "@types/compression": "^1.7.5",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/lodash": "^4.17.13",
+    "@types/mongoose": "^5.11.96",
+    "@types/node": "^22.10.1",
+    "nodemon": "^3.1.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "compression": "^1.7.5",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ignore": "^6.0.2",
+    "lodash": "^4.17.21",
+    "mongodb": "^6.11.0",
+    "mongoose": "^8.8.4"
+  }
+}
+
+
+Path: tsconfig.json
+Contents:
+{
+    "compilerOptions": {
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "baseUrl": "src",
+        "outDir": "dist",
+        "sourceMap": true,
+        "noImplicitAny": true
+    },
+    "include": ["src/**/*"]
+}
+
+Path: repository_amalgamator.py
+Contents:
+import os
+from pathspec import PathSpec
+
+def main():
+    root_dir = os.getcwd()
+    output_file = os.path.join(root_dir, 'repository_amalgamation.txt')
+
+    # Read and parse .gitignore
+    gitignore_file = os.path.join(root_dir, '.gitignore')
+    ignore_lines = []
+    if os.path.exists(gitignore_file):
+        with open(gitignore_file, 'r', encoding='utf-8') as f:
+            ignore_lines = f.read().splitlines()
+
+    ignore_lines.append(".git")
+    ignore_lines.append("package-lock.json")
+    spec = PathSpec.from_lines('gitwildmatch', ignore_lines)
+
+    # Remove the existing output file if it exists
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    # Recursively collect files
+    files_collected = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Calculate relative path of the current directory
+        relative_dir = os.path.relpath(dirpath, root_dir)
+        if relative_dir == '.':
+            relative_dir = ''
+
+        # Filter out ignored directories by mutating dirnames in-place
+        dirs_to_remove = []
+        for d in dirnames:
+            rel_path = os.path.join(relative_dir, d) if relative_dir else d
+            if spec.match_file(rel_path):
+                dirs_to_remove.append(d)
+
+        for d in dirs_to_remove:
+            dirnames.remove(d)
+
+        # Collect files that are not ignored
+        for filename in filenames:
+            rel_path = os.path.join(relative_dir, filename) if relative_dir else filename
+            if not spec.match_file(rel_path):
+                abs_path = os.path.join(dirpath, filename)
+                files_collected.append(abs_path)
+
+    # Write file paths and contents to the output file
+    with open(output_file, 'w', encoding='utf-8') as out:
+        for file_path in files_collected:
+            rel_path = os.path.relpath(file_path, root_dir)
+            # Safely read file content
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                    content = content.replace('\u2028', '\n').replace('\u2029', '\n')
+            except FileNotFoundError as e:
+                content = f"Failed to read file (FileNotFoundError): {e}\n"
+            except PermissionError as e:
+                content = f"Failed to read file (PermissionError): {e}\n"
+            except UnicodeDecodeError as e:
+                content = f"Failed to read file (UnicodeDecodeError): {e}\n"
+            except OSError as e:
+                content = f"Failed to read file (OSError): {e}\n"
+
+            out.write(f"Path: {rel_path}\nContents:\n{content}\n\n")
+
+    print(f"Done! Collected {len(files_collected)} files. Check {output_file}")
+
+if __name__ == "__main__":
+    main()
+
+
+Path: src/index.ts
+Contents:
+import express from 'express';
+import http from 'http';
+import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
+import cors from 'cors';
+import * as dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import router from './router';
+
+dotenv.config();
+
+const app = express();
+
+app.use(cors({
+    credentials: true,
+}));
+
+app.use(compression());
+app.use(cookieParser());
+app.use(bodyParser.json());
+
+const server = http.createServer(app);
+
+const PORT = process.env.PORT
+server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}/`);
+});
+
+const MONGODB_ATLAS_PASSWORD = process.env.MONGODB_ATLAS_PASSWORD
+const MONGO_URL = `mongodb+srv://david:${MONGODB_ATLAS_PASSWORD}@cluster0.guwvp.mongodb.net/?retryWrites=true&w=majority`
+
+mongoose.Promise = Promise;
+mongoose.connect(MONGO_URL);
+mongoose.connection.on('error', (error: Error) => console.log(error));
+
+app.use('/', router());
+
+Path: src/middlewares/index.ts
+Contents:
+import express from 'express';
+import { get, merge } from 'lodash';
+
+import { getUserBySessionToken } from '../db/users';
+import { nextTick } from 'process';
+
+export const isOwner = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+        const { id } = req.params;
+        const currentUserId = get(req, 'identity._id') as string;
+
+        if (!currentUserId) {
+            return res.sendStatus(403);
+        }
+
+        if (currentUserId.toString() !== id) {
+            return res. sendStatus(403);
+        }
+
+        next();
+    } catch (error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+export const isAuthenticated  = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+        const sessionToken = req.cookies['DAVID-AUTH'];
+
+        if (!sessionToken) {
+            return res.sendStatus(403);
+        }
+
+        const existingUser = await getUserBySessionToken(sessionToken);
+
+        if (!existingUser) {
+            return res.sendStatus(403);
+        }
+
+        merge(req, { identity: existingUser });
+
+        return next();
+    } catch (error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+
+Path: src/db/users.ts
+Contents:
+import mongoose from 'mongoose';
+
+const UserSchema = new mongoose.Schema({
+    username: { type: String, required: true },
+    email: { type: String, required: true },
+    authentication: {
+        password: { type: String, required: true, select: false },
+        salt: { type: String, select: false },
+        sessionToken: { type: String, select: false },
+    }
+});
+
+export const UserModel = mongoose.model('User', UserSchema);
+
+export const getUsers = () => UserModel.find();
+export const getUserByEmail = (email: string) => UserModel.findOne({ email });
+export const getUserBySessionToken = (sessionToken: string) => UserModel.findOne({
+    'authentication.sessionToken': sessionToken,
+});
+export const getUserById = (id: string) => UserModel.findById(id);
+export const createUser = (values: Record<string, any>) => new UserModel(values)
+    .save().then((user) => user.toObject());
+export const deleteUserById = (id: string) => UserModel.findOneAndDelete({ _id: id });
+export const updateUserById = (id: string, values: Record<string, any>) => UserModel.findByIdAndUpdate(id, values);
+
+
+Path: src/controllers/authentication.ts
+Contents:
+import express from 'express';
+import { createUser, getUserByEmail } from '../db/users';
+import { random, authentication } from '../helpers';
+
+export const login = async (req: express.Request, res: express.Response) => {
+    try {
+        console.log("++++++++++++++++++++++++++++++++++++++");
+        console.log("req.body");
+        console.log(req.body);
+        const {email, password } = req.body;
+
+        if (!email || !password) {
+            return res.sendStatus(400);
+        }
+
+        const user = await getUserByEmail(email).select('+authentictaion.salt +authentication.password');
+        console.log("user");
+        console.log(user);
+        if (!user) {
+            return res.sendStatus(400);
+        }
+
+        const expectedHash = authentication(user.authentication.salt, password);
+        console.log("expectedHash")
+        console.log(expectedHash)
+        console.log("user.authentication.password")
+        console.log(user.authentication.password)
+        if (user.authentication.password !== expectedHash) {
+            return res.sendStatus(403);
+        }
+
+        const salt = random();
+        user.authentication.sessionToken = authentication(salt, user.id.toString());
+
+        await user.save();
+
+        res.cookie('DAVID-AUTH', user.authentication.sessionToken, { domain: 'localhost', path: '/'});
+
+        return res.status(200).json(user).end();
+    } catch (error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+export const register = async (req: express.Request, res: express.Response) => {
+    try {
+        const { email, password, username } = req.body;
+
+        if (!email || !password || !username) {
+            return res.sendStatus(400);
+        }
+
+        const existingUser = await getUserByEmail(email);
+
+        if (existingUser) {
+            return res.sendStatus(400);
+        }
+
+        const salt = random();
+        const user = await createUser({
+            email,
+            username,
+            authentication: {
+                salt,
+                password: authentication(salt, password),
+            },
+        });
+
+        return res.status(200).json(user).end();
+    } catch (error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+Path: src/controllers/users.ts
+Contents:
+import express from 'express';
+
+import { deleteUserById, getUserById, getUsers } from '../db/users';
+
+export const getAllUsers = async (req: express.Request, res: express.Response) => {
+    try {
+        const users = await getUsers();
+
+        return res.status(200).json(users);
+    } catch (error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+export const deleteUser = async (req: express.Request, res: express.Response) => {
+    try {
+        const { id } = req.params;
+
+        const deletedUser = await deleteUserById(id);
+
+        return res.json(deletedUser)
+    } catch (error) {
+        console.log(error)
+        return res.sendStatus(400);
+    }
+}
+
+export const updateUser = async (req: express.Request, res: express.Response) => {
+    try {
+        const { id } = req.params;
+        const { username } = req.body;
+
+        if (!username) {
+            return res.sendStatus(400);
+        }
+
+        const user = await getUserById(id);
+
+        user.username = username;
+        await username.save();
+
+        return res.status(200).json(user).end();
+    } catch(error) {
+        console.log(error);
+        return res.sendStatus(400);
+    }
+}
+
+Path: src/helpers/index.ts
+Contents:
+import crypto from 'crypto';
+import * as dotenv from 'dotenv';
+dotenv.config();
+const SECRET = process.env.SECRET
+
+export const random = () => crypto.randomBytes(128).toString('base64');
+export const authentication = (salt: string, password: string) => {
+    return crypto.createHmac('sha256', [salt, password].join('/')).update(SECRET).digest('hex')
+}
+
+
+Path: src/router/authentication.ts
+Contents:
+import express from 'express';
+import { register, login } from '../controllers/authentication';
+
+export default (router: express.Router) => {
+    router.post('/auth/register', register);
+    router.post('/auth/login', login);
+}
+
+
+Path: src/router/users.ts
+Contents:
+import express from 'express';
+
+import { getAllUsers, deleteUser, updateUser } from '../controllers/users';
+import { isAuthenticated, isOwner } from '../middlewares';
+
+export default (router: express.Router) => {
+  router.get('/users', isAuthenticated, getAllUsers);
+  router.delete('/users/:id', isAuthenticated, isOwner, deleteUser);
+  router.patch('/users/:id', isAuthenticated, isOwner, updateUser);
+}
+
+
+Path: src/router/index.ts
+Contents:
+import express from 'express';
+import authentication from './authentication';
+
+const router = express.Router();
+
+export default (): express.Router => {
+    authentication(router);
+    
+    return router;
+};
